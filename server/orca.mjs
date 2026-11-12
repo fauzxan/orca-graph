@@ -339,8 +339,9 @@ async function isWorkerOpen(worker) {
   return res.ok && res.result.observation?.status === 'live';
 }
 
-// An agent tab is open while orca sees an agent in it. agentIdentity clears when the agent exits.
-const isAgentTabOpen = (t) => Boolean(t?.connected && t.agentIdentity);
+// A terminal session is open while its tab is connected, with or without an agent running in it.
+const isTerminalOpen = (t) => Boolean(t?.connected);
+const hasAgent = (t) => Boolean(t?.connected && t.agentIdentity);
 
 export async function collectGraph() {
   const errors = [];
@@ -430,25 +431,26 @@ export async function collectGraph() {
     sessions.get(parent).runs.add(run?.objective || runId || 'unknown run');
   });
 
-  // Only open agents appear. A worker stays while its latest dispatch's agent session is live; a
-  // coordinator while an agent is running in its tab. Runs without a coordinator are dropped, and
-  // workers whose parent is gone become roots.
+  // Only open sessions appear. A worker stays while its latest dispatch's agent session is live; a
+  // coordinator while its tab is open. Runs without a coordinator are dropped, and workers whose
+  // parent is gone become roots.
   const allWorkerSessions = [...sessions.values()].filter((s) => s.kind === 'worker');
   allWorkerSessions.forEach((s) => s.dispatches.sort((a, b) => a.dispatchedAt.localeCompare(b.dispatchedAt)));
   const open = await pool(allWorkerSessions, CONCURRENCY, (s) => isWorkerOpen(s.dispatches.at(-1).worker));
   const closedWorkers = allWorkerSessions.filter((_, i) => !open[i]);
   closedWorkers.forEach((s) => sessions.delete(s.id));
   for (const s of [...sessions.values()]) {
-    if (s.kind === 'run' || (s.kind === 'coordinator' && !isAgentTabOpen(s.terminal))) sessions.delete(s.id);
+    if (s.kind === 'run' || (s.kind === 'coordinator' && !isTerminalOpen(s.terminal))) sessions.delete(s.id);
   }
   for (const [key, e] of edges) if (!sessions.has(e.source) || !sessions.has(e.target)) edges.delete(key);
 
-  // Agent tabs outside any orchestration run (like the session you're chatting in) still get a node.
+  // Every other open tab gets a node too: agent tabs outside any run (like the session you're
+  // chatting in) and plain shells.
   for (const t of terminals.values()) {
-    if (!isAgentTabOpen(t) || sessions.has(t.handle)) continue;
+    if (!isTerminalOpen(t) || sessions.has(t.handle)) continue;
     sessions.set(t.handle, {
       id: t.handle,
-      kind: 'session',
+      kind: hasAgent(t) ? 'session' : 'terminal',
       name: `${t.title} · ${nameForWorktree(t.worktreeId)}`,
       runs: new Set(),
       dispatches: [],
@@ -508,9 +510,10 @@ export async function collectGraph() {
     const screen = screens[terminalSessions.indexOf(s)];
     // A Claude tab with no reply on screen yet shows nothing, rather than its shell prompt.
     const preview = screen ? screen.message : s.terminal ? terminalMessage(s.terminal.preview) : '';
-    nextIndex.set(s.id, { kind: s.kind, name: s.name, connected: Boolean(s.terminal?.connected) });
+    nextIndex.set(s.id, { kind: s.kind, name: s.name, connected: Boolean(s.terminal?.connected), agent: hasAgent(s.terminal) });
     return {
       ...base,
+      agent: hasAgent(s.terminal),
       status: terminalStatus(s, screen),
       lastMessage: crop(preview),
       lastMessageFull: preview,

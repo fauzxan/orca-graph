@@ -97,12 +97,12 @@ export function SidePane({ node, pollMs, onClose }: { node: GraphNode; pollMs: n
     let timer: ReturnType<typeof setTimeout>;
     setDetail(null);
     setNotice(null);
-    setTab('messages');
+    setTab(node.kind !== 'worker' && node.agent === false ? 'raw' : 'messages');
     stick.current = true;
     const load = async () => {
       try {
         const d = await session(node.id);
-        // A failed refresh keeps the last good view. If the agent exited, the graph poll closes the pane.
+        // A failed refresh keeps the last good view. If the tab closed, the graph poll closes the pane.
         if (!cancelled) setDetail((prev) => (d.ok || !prev?.ok ? d : prev));
       } finally {
         if (!cancelled) timer = setTimeout(load, pollMs);

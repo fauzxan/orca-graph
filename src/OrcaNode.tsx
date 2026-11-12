@@ -8,6 +8,7 @@ const KIND_LABEL: Record<GraphNode['kind'], string> = {
   worker: 'Worker',
   run: 'Run',
   session: 'Agent session',
+  terminal: 'Terminal',
 };
 
 function ago(ms: number | null): string {
@@ -21,7 +22,7 @@ function ago(ms: number | null): string {
 
 export function OrcaNode({ data }: NodeProps<OrcaFlowNode>) {
   const meta = [
-    KIND_LABEL[data.kind],
+    data.kind === 'coordinator' && data.agent === false ? 'Coordinator (agent exited)' : KIND_LABEL[data.kind],
     data.dispatches && `${data.dispatches.done}/${data.dispatches.total} tasks done`,
     ago(data.lastMessageAt),
   ].filter(Boolean);
@@ -36,7 +37,7 @@ export function OrcaNode({ data }: NodeProps<OrcaFlowNode>) {
       <div className="meta">{meta.join(' · ')}</div>
       <div className="message">{data.lastMessage || <em>No messages yet</em>}</div>
       <div className="runs" title={data.runs.join('\n')}>
-        {data.runs[0] ?? (data.kind === 'session' ? 'Not in an orchestration run' : '')}
+        {data.runs[0] ?? (data.kind === 'session' || data.kind === 'terminal' ? 'Not in an orchestration run' : '')}
         {data.runs.length > 1 && ` +${data.runs.length - 1}`}
       </div>
       <Handle type="source" position={Position.Bottom} />

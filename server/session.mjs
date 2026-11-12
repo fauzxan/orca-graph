@@ -126,14 +126,22 @@ async function streamFor(handle) {
   return { lines: t.tail || [], status: t.status, source: t.source };
 }
 
+// Text sent to a plain shell would run as a command, so those tabs are read-only here.
+const SHELL_NOTE = 'No agent is running in this tab. Sending is off so text can’t run as a shell command.';
+
 export async function sessionDetail(id) {
   const s = sessionIndex.get(id);
-  if (!s) return { ok: false, error: 'This agent is no longer open.' };
+  if (!s) return { ok: false, error: 'This session is no longer open.' };
   const base = { ok: true, id, kind: s.kind, name: s.name };
   if (s.kind === 'run') return { ...base, messages: [], raw: [], canSend: false, note: 'This run has no coordinator session.' };
 
-  if (s.kind === 'coordinator' || s.kind === 'session') {
+  if (s.kind === 'coordinator' || s.kind === 'session' || s.kind === 'terminal') {
     if (!s.connected) return { ...base, messages: [], raw: [], canSend: false, note: 'This terminal is closed.' };
+    if (!s.agent) {
+      const stream = await streamFor(id);
+      const raw = stream.lines.map(stripAnsi);
+      return { ...base, messages: [], raw, error: stream.error, canSend: false, note: SHELL_NOTE };
+    }
     const stream = await streamFor(id);
     const messages = stream.source === 'screen' ? fromClaudeScreen(stream.lines) : fromWorkerStream(stream.lines);
     return {
@@ -168,6 +176,7 @@ export async function sendMessage(id, text) {
   const s = sessionIndex.get(id);
   if (!s) return { ok: false, error: 'Unknown session. Refresh and try again.' };
   if (s.kind === 'run') return { ok: false, error: 'This run has no session to message.' };
+  if (s.kind !== 'worker' && !s.agent) return { ok: false, error: SHELL_NOTE };
 
   const direct = await orca(['terminal', 'send', '--terminal', id, '--text', text, '--enter', '--wait-submit', '5']);
   if (direct.ok) return { ok: true, via: 'prompt' };

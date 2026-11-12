@@ -2,7 +2,7 @@
 
 Live graph of Orca orchestration: which coordinator dispatched which worker, what each worker is doing, and its last message. Polls the `orca` CLI every 5 seconds by default. Runs on localhost only.
 
-Only **open** agents appear: a worker while its agent session is live, and an agent tab while an agent is running in it. When you exit an agent, its node disappears on the next poll.
+One node per **open** session: every connected orca terminal tab (agent or plain shell), plus each worker while its agent session is live. Closing a tab removes its node on the next poll. Exiting an agent keeps the tab open, so its node stays as a **Terminal** node.
 
 ## Run
 
@@ -55,7 +55,7 @@ The server listens on 127.0.0.1 only. Cleanup and send requests must come from a
 
 ## How the graph is built
 
-- **Nodes** are agent sessions. A worker that takes follow-up tasks is one node; the edge label shows how many tasks it got. Agent tabs outside any orchestration run appear as standalone "Agent session" nodes.
+- **Nodes** are open sessions. A worker that takes follow-up tasks is one node; the edge label shows how many tasks it got. Tabs outside any orchestration run appear as standalone "Agent session" nodes, or "Terminal" nodes when no agent is running. Terminal nodes open on **Raw output** and can't be messaged, because the text would run as a shell command.
 - **Edges** come from `orchestration dispatch-show`: `creator_handle` → `assignee_handle`. Workers that dispatch their own workers nest naturally.
 - **Names**: workers use their worktree's display name; coordinators use their terminal title and worktree.
 - **Last message**: the newest text block from `orchestration worker-read` for workers, and the terminal preview (with Claude Code's footer removed) for coordinators. Hover a card for the full text.

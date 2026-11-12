@@ -3,7 +3,9 @@ export type Status = 'done' | 'working' | 'idle' | 'input' | 'error' | 'offline'
 // A type alias, not an interface: React Flow node data must fit Record<string, unknown>.
 export type GraphNode = {
   id: string;
-  kind: 'coordinator' | 'worker' | 'run' | 'session';
+  kind: 'coordinator' | 'worker' | 'run' | 'session' | 'terminal';
+  // Terminal-backed nodes: whether an agent is running in the tab (false for a plain shell).
+  agent?: boolean;
   name: string;
   runs: string[];
   status: Status;
