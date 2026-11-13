@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { send, session } from './api';
+import { Composer } from './Composer';
 import { Thread } from './Thread';
 import { STATUS_LABEL, type GraphNode, type SessionDetail } from './types';
 
@@ -85,7 +86,6 @@ function useResizableWidth() {
 export function SidePane({ node, pollMs, onClose }: { node: GraphNode; pollMs: number; onClose: () => void }) {
   const [detail, setDetail] = useState<SessionDetail | null>(null);
   const [tab, setTab] = useState<Tab>('messages');
-  const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
   const body = useRef<HTMLDivElement>(null);
@@ -127,19 +127,17 @@ export function SidePane({ node, pollMs, onClose }: { node: GraphNode; pollMs: n
     return () => window.removeEventListener('keydown', esc);
   }, [onClose]);
 
-  const submit = async () => {
-    const message = text.trim();
-    if (!message) return;
+  const submit = async (message: string) => {
     setSending(true);
     const r = await send(node.id, message);
     setSending(false);
     if (r.ok) {
-      setText('');
       stick.current = true;
       setNotice({ ok: true, text: r.via === 'mailbox' ? 'Sent to the worker’s orchestration mailbox.' : 'Sent to the agent.' });
     } else {
       setNotice({ ok: false, text: r.error || 'Send failed.' });
     }
+    return r.ok;
   };
 
   return (
@@ -199,30 +197,15 @@ export function SidePane({ node, pollMs, onClose }: { node: GraphNode; pollMs: n
         {detail?.ok && tab === 'raw' && <pre className="stream">{detail.raw.length ? detail.raw.join('\n') : 'No output.'}</pre>}
       </div>
 
-      <form
-        className="composer"
-        onSubmit={(e) => {
-          e.preventDefault();
-          submit();
-        }}
-      >
+      <div className="composer">
         {notice && <div className={notice.ok ? 'ok small' : 'warn small'}>{notice.text}</div>}
-        <div className="composer-row">
-          <textarea
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit();
-            }}
-            placeholder={detail?.canSend === false ? 'This session can’t take messages.' : 'Message this agent…  ⌘↵ to send'}
-            disabled={sending || detail?.canSend === false}
-            rows={2}
-          />
-          <button type="submit" className="primary" disabled={sending || !text.trim() || detail?.canSend === false}>
-            {sending ? 'Sending…' : 'Send'}
-          </button>
-        </div>
-      </form>
+        <Composer
+          disabled={detail?.canSend === false}
+          sending={sending}
+          placeholder={detail?.canSend === false ? 'This session can’t take messages.' : 'Message this agent… Markdown works. ⌘↵ to send'}
+          onSend={submit}
+        />
+      </div>
     </aside>
   );
 }

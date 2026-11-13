@@ -89,7 +89,7 @@ export function Thread({ messages }: { messages: Message[] }) {
                 {m.kind === 'user' ? 'Prompt' : 'Agent'}
                 {m.at && <span>{time(m.at)}</span>}
               </div>
-              {m.kind === 'user' ? <div className="plain">{m.text}</div> : <Markdown text={m.text} />}
+              <Markdown text={m.text} />
             </div>
           </div>
         );

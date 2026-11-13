@@ -1,4 +1,5 @@
 // Side-pane data for one session (a chat-style message list plus raw output) and sending it a message.
+import { claudeTranscript } from './claude.mjs';
 import { orca, sessionIndex } from './orca.mjs';
 
 const TRANSCRIPT_LIMIT = 200;
@@ -135,13 +136,19 @@ export async function sessionDetail(id) {
   if (s.kind === 'coordinator' || s.kind === 'session') {
     if (!s.connected) return { ...base, messages: [], raw: [], canSend: false, note: 'This terminal is closed.' };
     const stream = await streamFor(id);
-    const messages = stream.source === 'screen' ? fromClaudeScreen(stream.lines) : fromWorkerStream(stream.lines);
+    const raw = stream.lines.map(stripAnsi);
+    if (stream.source !== 'screen') return { ...base, path: s.path, messages: fromWorkerStream(stream.lines), raw, error: stream.error, canSend: true };
+    const screen = fromClaudeScreen(stream.lines);
+    // Prefer Claude's own transcript: it keeps the Markdown (tables, code blocks) and the whole history.
+    const transcript = s.agent === 'claude' ? await claudeTranscript(id, s.path, screen, { clip, toolInput }).catch(() => null) : null;
+    const busy = stream.lines.some((l) => /esc to interrupt/i.test(l));
     return {
       ...base,
-      messages,
-      raw: stream.lines.map(stripAnsi),
+      path: s.path,
+      messages: transcript ? [...transcript, ...(busy ? [{ kind: 'divider', text: 'Working…' }] : [])] : screen,
+      raw,
       error: stream.error,
-      note: stream.source === 'screen' ? 'Showing what is on this tab’s screen right now.' : undefined,
+      note: transcript ? undefined : 'Showing what is on this tab’s screen right now.',
       canSend: true,
     };
   }

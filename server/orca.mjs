@@ -508,7 +508,13 @@ export async function collectGraph() {
     const screen = screens[terminalSessions.indexOf(s)];
     // A Claude tab with no reply on screen yet shows nothing, rather than its shell prompt.
     const preview = screen ? screen.message : s.terminal ? terminalMessage(s.terminal.preview) : '';
-    nextIndex.set(s.id, { kind: s.kind, name: s.name, connected: Boolean(s.terminal?.connected) });
+    nextIndex.set(s.id, {
+      kind: s.kind,
+      name: s.name,
+      connected: Boolean(s.terminal?.connected),
+      path: s.terminal?.worktreePath || pathOf(s.terminal?.worktreeId),
+      agent: s.terminal?.agentIdentity || null,
+    });
     return {
       ...base,
       status: terminalStatus(s, screen),

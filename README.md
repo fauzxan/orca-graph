@@ -37,6 +37,9 @@ Yellow needs orca's `input` flag **and** an idle worker (no output change for 60
 ## Using it
 
 - **Click a node** to open its session in the side pane: replies and prompts as a chat thread, with thinking, tool calls and output folded into a closed "steps" row between replies. **Raw output** shows the terminal stream as is. A box at the bottom sends the agent a message.
+  - Prompts and replies render Markdown: tables, code blocks (with a Copy button), lists, quotes, inline code and links.
+  - For Claude Code tabs the thread comes from Claude's own transcript (`~/.claude/projects/…/<session>.jsonl`), matched to the tab by its latest prompt and reply on screen. That keeps the original Markdown and the full history. If no transcript matches, the pane falls back to what's on the tab's screen, and box-drawn tables there still render as tables.
+  - The message box has **Write / Preview** tabs, **Code** (wraps the selection in a code block) and **Table** buttons, and turns cells pasted from a spreadsheet into a Markdown table. Multi-line messages reach the agent as one prompt.
 - **Right-click a worker** for cleanup:
   - *Clean up worktree*: stops the worker if it's running (you confirm first), closes its agent session, then `orca worktree rm`. The branch is kept, and orca refuses if the worktree has uncommitted changes.
   - *Clean up worktree and transcripts*: the same, then moves `~/.claude/projects/<worktree path>` to the Trash.
