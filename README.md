@@ -50,7 +50,14 @@ Yellow needs orca's `input` flag **and** an idle worker (no output change for 60
 
 ### Sending messages
 
-Messages go to the agent as a prompt (`orca terminal send --enter`). For chat-style workers where orca rejects that, they go to the worker's orchestration mailbox (`orca orchestration send`), and the pane says which was used.
+Messages go to the agent as a prompt (`orca terminal send --enter`). Structured workers (`structworker_*`) are agent sessions, not terminals, so orca refuses terminal commands for them. Their messages go to the worker's orchestration mailbox instead (`orca orchestration send --to dispatch:<id>`). A working worker reads it now; a finished one gets it as a follow-up task. The pane says which route was used.
+
+orca needs a sender (`--from`) for mailbox messages, and the worker's reply goes to that sender:
+
+1. The coordinator that dispatched the worker, while its tab is open. Replies land with the agent that owns the work.
+2. Otherwise `ORCA_TERMINAL_HANDLE`, which is set when orca-graph is started inside an Orca terminal tab.
+
+If neither is available, sending fails with an explanation.
 
 ### Safety
 

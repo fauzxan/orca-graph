@@ -4,6 +4,7 @@ export type ActionResult = {
   ok: boolean;
   error?: string;
   via?: 'prompt' | 'mailbox';
+  from?: string;
   note?: string;
   steps?: { step: string; ok: boolean; detail: string }[];
 };

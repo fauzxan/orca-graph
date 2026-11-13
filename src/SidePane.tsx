@@ -133,7 +133,10 @@ export function SidePane({ node, pollMs, onClose }: { node: GraphNode; pollMs: n
     setSending(false);
     if (r.ok) {
       stick.current = true;
-      setNotice({ ok: true, text: r.via === 'mailbox' ? 'Sent to the worker’s orchestration mailbox.' : 'Sent to the agent.' });
+      setNotice({
+        ok: true,
+        text: r.via === 'mailbox' ? `Sent to the worker’s orchestration mailbox as ${r.from}. Replies go there.` : 'Sent to the agent.',
+      });
     } else {
       setNotice({ ok: false, text: r.error || 'Send failed.' });
     }

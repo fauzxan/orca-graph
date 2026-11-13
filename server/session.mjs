@@ -169,20 +169,51 @@ export async function sessionDetail(id) {
   };
 }
 
-// Prompts the agent directly. orca rejects terminal commands for some chat-style worker
-// sessions; for those the message goes to the worker's orchestration mailbox instead.
+// Who the mailbox message is from. orca needs a sender terminal and sends replies to it.
+// 1. The coordinator that dispatched the worker, while its tab is open: replies land with the
+//    agent that owns the work.
+// 2. ORCA_TERMINAL_HANDLE, set when this server was started inside an Orca terminal.
+// A plain handle like run:<id> is not a terminal, so it is never used.
+function senderFor(worker) {
+  const coordinator = worker.coordinator;
+  const entry = coordinator ? sessionIndex.get(coordinator) : null;
+  if (coordinator?.startsWith('term_') && entry?.connected) return { handle: coordinator, name: entry.name };
+  const own = process.env.ORCA_TERMINAL_HANDLE;
+  if (own) return { handle: own, name: 'the terminal running orca-graph' };
+  return null;
+}
+
+// Structured workers (structworker_*) are agent sessions, not terminals: orca refuses terminal
+// commands for them, so their messages go straight to the orchestration mailbox.
+const isAgentSession = (id) => id.startsWith('structworker_');
+
+// Prompts the agent directly where orca allows it; otherwise uses the worker's mailbox. A working
+// worker reads the message now; a finished one gets it as a follow-up task.
 export async function sendMessage(id, text) {
   const s = sessionIndex.get(id);
-  if (!s) return { ok: false, error: 'Unknown session. Refresh and try again.' };
+  if (!s) return { ok: false, error: 'This session is no longer open. Refresh and try again.' };
   if (s.kind === 'run') return { ok: false, error: 'This run has no session to message.' };
 
-  const direct = await orca(['terminal', 'send', '--terminal', id, '--text', text, '--enter', '--wait-submit', '5']);
-  if (direct.ok) return { ok: true, via: 'prompt' };
-  if (s.kind !== 'worker') return { ok: false, error: direct.error };
+  let direct = null;
+  if (!isAgentSession(id)) {
+    direct = await orca(['terminal', 'send', '--terminal', id, '--text', text, '--enter', '--wait-submit', '5']);
+    if (direct.ok) return { ok: true, via: 'prompt' };
+    if (s.kind !== 'worker') return { ok: false, error: direct.error };
+  }
+  if (s.kind !== 'worker') return { ok: false, error: 'This session can only take messages through its own chat tab.' };
 
-  const args = ['orchestration', 'send', '--to', `dispatch:${s.latestDispatchId}`, '--subject', 'Message from orca-graph', '--body', text];
+  const sender = senderFor(s);
+  if (!sender) {
+    return {
+      ok: false,
+      error:
+        'orca needs a sender for mailbox messages, and none is available: the coordinator that dispatched this worker is closed, ' +
+        'and orca-graph was not started inside an Orca terminal. Start orca-graph from an Orca terminal tab, or reopen the coordinator.',
+    };
+  }
+  const args = ['orchestration', 'send', '--to', `dispatch:${s.latestDispatchId}`, '--from', sender.handle, '--subject', 'Message from orca-graph', '--body', text];
   if (s.runId) args.push('--run', s.runId);
   const mail = await orca(args);
-  if (mail.ok) return { ok: true, via: 'mailbox', note: `Sent to the worker's mailbox. Direct prompt failed: ${direct.error}` };
-  return { ok: false, error: `${direct.error}\n${mail.error}` };
+  if (mail.ok) return { ok: true, via: 'mailbox', from: sender.name };
+  return { ok: false, error: [direct?.error, mail.error].filter(Boolean).join('\n') };
 }
