@@ -24,7 +24,24 @@ async function post(path: string, body: unknown): Promise<ActionResult> {
 }
 
 export const cleanup = (id: string, mode: CleanupMode) => post('/api/cleanup', { id, mode });
-export const send = (id: string, text: string) => post('/api/send', { id, text });
+export const send = (id: string, text: string, images: string[] = []) => post('/api/send', { id, text, images });
+
+// Saves a picture on the server and returns its path, which goes into the message.
+export const uploadImage = (data: string) => post('/api/image', { data }) as Promise<ActionResult & { path?: string }>;
+
+export type Skill = { name: string; description: string; source: string; path: string };
+
+export async function skills(id: string): Promise<Skill[]> {
+  try {
+    const res = await fetch(`/api/skills?id=${encodeURIComponent(id)}`, { cache: 'no-store' });
+    const body = await res.json();
+    return body.ok ? body.skills : [];
+  } catch {
+    return [];
+  }
+}
+
+export const imageUrl = (path: string) => `/api/image?path=${encodeURIComponent(path)}`;
 
 export async function session(id: string): Promise<SessionDetail> {
   const res = await fetch(`/api/session?id=${encodeURIComponent(id)}`, { cache: 'no-store' });

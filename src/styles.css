@@ -280,3 +280,33 @@ pre.code code { background: none; padding: 0; border-radius: 0; font: inherit; w
 .composer-tools button { font-size: 11px; padding: 2px 8px; }
 .composer-row textarea { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; min-height: 52px; resize: none; }
 .composer-preview { flex: 1; min-height: 52px; max-height: 280px; overflow: auto; padding: 8px; border: 1px dashed var(--line); border-radius: 6px; background: var(--bg); }
+
+/* Skills menu: opens above the message box when a prompt starts with "/" */
+.composer-box { position: relative; }
+.composer-box.dropping { outline: 2px dashed var(--working); outline-offset: 4px; border-radius: 8px; }
+.skill-menu { position: absolute; left: 0; right: 0; bottom: calc(100% + 6px); z-index: 20; max-height: 320px; display: flex; flex-direction: column; background: var(--card); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 28px rgb(0 0 0 / 0.14); padding: 6px; }
+.skill-menu-head { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); padding: 4px 8px 6px; }
+.skill-menu ul { list-style: none; margin: 0; padding: 0; overflow-y: auto; }
+.skill-menu li { display: flex; align-items: flex-start; gap: 8px; padding: 6px 8px; border-radius: 7px; cursor: pointer; }
+.skill-menu li.active { background: color-mix(in srgb, var(--fg) 7%, transparent); }
+.skill-icon { width: 15px; height: 15px; flex: none; margin-top: 2px; color: var(--muted); }
+.skill-text { flex: 1; min-width: 0; }
+.skill-name { font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; }
+.skill-desc { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.skill-source { font-size: 11px; color: var(--muted); flex: none; margin-top: 2px; }
+.skill-empty { font-size: 12px; color: var(--muted); padding: 6px 8px 8px; }
+
+/* Image attachments */
+.attachments { display: flex; flex-wrap: wrap; gap: 6px; }
+.attachment { position: relative; width: 64px; height: 64px; border-radius: 6px; overflow: hidden; border: 1px solid var(--line); background: var(--bg); }
+.attachment img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.attachment.uploading img { opacity: 0.45; }
+.attachment.failed { border-color: var(--error); }
+.attachment-error { position: absolute; inset: auto 0 0 0; font-size: 10px; background: var(--error); color: #fff; padding: 1px 3px; text-align: center; }
+.attachment-remove { position: absolute; top: 2px; right: 2px; width: 18px; height: 18px; padding: 0; border-radius: 50%; border: 0; background: rgb(0 0 0 / 0.6); color: #fff; font-size: 12px; line-height: 18px; }
+.msg-images { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 6px; }
+.msg-images a { display: block; border-radius: 6px; overflow: hidden; border: 1px solid var(--line); background: var(--bg); }
+.msg-images img { display: block; max-width: 220px; max-height: 160px; object-fit: contain; }
+.msg-images a.missing img { display: none; }
+.msg-images a.missing::after { content: 'Image (file removed)'; display: grid; place-items: center; width: 110px; height: 48px; font-size: 11px; color: var(--muted); }
+.img-tile { display: inline-grid; place-items: center; width: 64px; height: 48px; font-size: 11px; color: var(--muted); border: 1px dashed var(--line); border-radius: 6px; }

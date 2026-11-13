@@ -67,7 +67,11 @@ function parse(text, { clip, toolInput }) {
     for (const b of blocks) {
       if (b.type === 'text' && b.text?.trim()) {
         const text = e.type === 'user' ? typed(b.text) : b.text;
-        if (text?.trim()) out.push({ kind: e.type === 'user' ? 'user' : 'assistant', text: text.trim(), at });
+        if (!text?.trim()) continue;
+        const prev = out.at(-1);
+        // Claude writes a pasted image's "[Image: source: <path>]" as its own entry: keep it with its prompt.
+        if (e.type === 'user' && prev?.kind === 'user' && /^(\[Image: source: [^\]]+\]\s*)+$/.test(text.trim())) prev.text += `\n${text.trim()}`;
+        else out.push({ kind: e.type === 'user' ? 'user' : 'assistant', text: text.trim(), at });
       } else if (b.type === 'thinking' && b.thinking?.trim()) {
         out.push({ kind: 'thinking', text: b.thinking.trim(), at });
       } else if (b.type === 'tool_use') {

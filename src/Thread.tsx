@@ -1,3 +1,4 @@
+import { imageUrl } from './api';
 import { Markdown } from './Markdown';
 import type { Message } from './types';
 
@@ -33,6 +34,36 @@ function summary(steps: Message[]) {
     errors && `${errors} error${errors > 1 ? 's' : ''}`,
   ].filter(Boolean);
   return parts.join(' · ') || `${steps.length} steps`;
+}
+
+// Images in a prompt arrive as "[Image: source: <path>]" lines, plus "[Image #N]" placeholders from
+// Claude Code. Show the files as thumbnails, and a plain tile for images pasted without a file.
+const SOURCE = /\[Image: source: ([^\]\n]+)\]/g;
+const PLACEHOLDER = /\[Image #\d+\]/g;
+
+function splitImages(text: string) {
+  const paths = [...text.matchAll(SOURCE)].map((m) => m[1].trim());
+  const placeholders = (text.match(PLACEHOLDER) || []).length;
+  const rest = text.replace(SOURCE, '').replace(PLACEHOLDER, '').replace(/\n{3,}/g, '\n\n').trim();
+  return { paths, unseen: Math.max(0, placeholders - paths.length), rest };
+}
+
+function Images({ paths, unseen }: { paths: string[]; unseen: number }) {
+  if (!paths.length && !unseen) return null;
+  return (
+    <div className="msg-images">
+      {paths.map((p) => (
+        <a key={p} href={imageUrl(p)} target="_blank" rel="noreferrer" title={p}>
+          <img src={imageUrl(p)} alt="Attached image" loading="lazy" onError={(e) => e.currentTarget.parentElement?.classList.add('missing')} />
+        </a>
+      ))}
+      {Array.from({ length: unseen }, (_, i) => (
+        <span key={i} className="img-tile" title="Pasted image (no file to preview)">
+          Image
+        </span>
+      ))}
+    </div>
+  );
 }
 
 function Step({ s }: { s: Message }) {
@@ -90,7 +121,19 @@ export function Thread({ messages }: { messages: Message[] }) {
                 {m.at && <span>{time(m.at)}</span>}
               </div>
               {m.subject && <div className="bubble-subject">{m.subject}</div>}
-              <Markdown text={m.text} />
+              {m.kind === 'user' ? (
+                (() => {
+                  const { paths, unseen, rest } = splitImages(m.text);
+                  return (
+                    <>
+                      <Images paths={paths} unseen={unseen} />
+                      {rest && <Markdown text={rest} />}
+                    </>
+                  );
+                })()
+              ) : (
+                <Markdown text={m.text} />
+              )}
             </div>
           </div>
         );

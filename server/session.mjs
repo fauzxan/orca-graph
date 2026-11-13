@@ -1,5 +1,6 @@
 // Side-pane data for one session (a chat-style message list plus raw output) and sending it a message.
 import { claudeTranscript } from './claude.mjs';
+import { imageLine } from './images.mjs';
 import { orca, sessionIndex } from './orca.mjs';
 
 const TRANSCRIPT_LIMIT = 200;
@@ -237,12 +238,35 @@ function senderFor(worker) {
 // commands for them, so their messages go straight to the orchestration mailbox.
 const isAgentSession = (id) => id.startsWith('structworker_');
 
+// Claude Code attaches an image when a paste holds nothing but the image's path, which is how
+// Orca's own image paste works. So each path is pasted on its own (bracketed paste, without Enter),
+// then the message is sent with Enter. A path inside a longer paste would stay plain text.
+const PASTE_START = '\x1b[200~';
+const PASTE_END = '\x1b[201~';
+const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function sendToClaudeTab(id, message, images) {
+  for (const path of images) {
+    const r = await orca(['terminal', 'send', '--terminal', id, '--text', `${PASTE_START}${path}${PASTE_END}`]);
+    if (!r.ok) return r;
+    await pause(250); // Claude reads the file before the next paste arrives
+  }
+  return orca(['terminal', 'send', '--terminal', id, '--text', message || ' ', '--enter', '--wait-submit', '5']);
+}
+
 // Prompts the agent directly where orca allows it; otherwise uses the worker's mailbox. A working
 // worker reads the message now; a finished one gets it as a follow-up task.
-export async function sendMessage(id, text) {
+export async function sendMessage(id, message, images = []) {
   const s = sessionIndex.get(id);
   if (!s) return { ok: false, error: 'This session is no longer open. Refresh and try again.' };
   if (s.kind === 'run') return { ok: false, error: 'This run has no session to message.' };
+  // Agents other than a Claude tab get the image paths as text, and open the files themselves.
+  const text = [message, ...images.map(imageLine)].filter(Boolean).join('\n\n');
+
+  if (images.length && s.agent === 'claude') {
+    const r = await sendToClaudeTab(id, message, images);
+    return r.ok ? { ok: true, via: 'prompt' } : { ok: false, error: r.error };
+  }
 
   let direct = null;
   if (!isAgentSession(id)) {

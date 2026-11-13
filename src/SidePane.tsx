@@ -122,14 +122,15 @@ export function SidePane({ node, pollMs, onClose }: { node: GraphNode; pollMs: n
   }, [detail, tab]);
 
   useEffect(() => {
-    const esc = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    // Escape closes the pane, unless something inside it (like the skills menu) used the key.
+    const esc = (e: KeyboardEvent) => e.key === 'Escape' && !e.defaultPrevented && onClose();
     window.addEventListener('keydown', esc);
     return () => window.removeEventListener('keydown', esc);
   }, [onClose]);
 
-  const submit = async (message: string) => {
+  const submit = async (message: string, images: string[]) => {
     setSending(true);
-    const r = await send(node.id, message);
+    const r = await send(node.id, message, images);
     setSending(false);
     if (r.ok) {
       stick.current = true;
@@ -203,6 +204,8 @@ export function SidePane({ node, pollMs, onClose }: { node: GraphNode; pollMs: n
       <div className="composer">
         {notice && <div className={notice.ok ? 'ok small' : 'warn small'}>{notice.text}</div>}
         <Composer
+          key={node.id}
+          sessionId={node.id}
           disabled={detail?.canSend === false}
           sending={sending}
           placeholder={detail?.canSend === false ? 'This session can’t take messages.' : 'Message this agent… Markdown works. ⌘↵ to send'}
