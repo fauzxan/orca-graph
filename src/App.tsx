@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Background, Controls, MarkerType, ReactFlow, useReactFlow, type Edge } from '@xyflow/react';
+import { applyNodeChanges, Background, Controls, MarkerType, ReactFlow, useReactFlow, type Edge, type NodeChange } from '@xyflow/react';
 import { CleanupDialog, type CleanupRequest } from './CleanupDialog';
 import { ContextMenu, type MenuState } from './ContextMenu';
 import { layout } from './layout';
@@ -90,7 +90,7 @@ function GraphView({
     if (graph && selectedId && !selected) setSelectedId(null);
   }, [graph, selectedId, selected]);
 
-  const { nodes, edges } = useMemo(() => {
+  const { nodes: laidOut, edges } = useMemo(() => {
     if (!graph) return { nodes: [] as OrcaFlowNode[], edges: [] as Edge[] };
     const edges: Edge[] = graph.edges.map((e) => ({
       id: e.id,
@@ -111,6 +111,23 @@ function GraphView({
     return { nodes: layout(nodes, edges), edges };
   }, [graph, selectedId]);
 
+  // React Flow measures each node after it renders and keeps the size on the node object. Every
+  // poll builds new node objects, so without carrying the size over React Flow hides every node
+  // (and drops every edge) until it measures them again: a visible blink on slower machines.
+  const [nodes, setNodes] = useState<OrcaFlowNode[]>([]);
+  useEffect(() => {
+    setNodes((prev) => {
+      const measured = new Map(prev.map((n) => [n.id, n.measured]));
+      return laidOut.map((n) => (measured.get(n.id) ? { ...n, measured: measured.get(n.id) } : n));
+    });
+  }, [laidOut]);
+  const onNodesChange = useCallback(
+    (changes: NodeChange<OrcaFlowNode>[]) =>
+      // Only sizes come back from React Flow; position and selection are owned by the graph.
+      setNodes((prev) => applyNodeChanges(changes.filter((c) => c.type === 'dimensions'), prev)),
+    [],
+  );
+
   // Refit only when the set of sessions changes, so a poll doesn't undo the user's pan and zoom.
   useEffect(() => {
     const next = nodes.map((n) => n.id).sort().join('|');
@@ -126,12 +143,12 @@ function GraphView({
   return (
     <main>
       <div className="canvas">
-        {graph && graph.nodes.length === 0 ? (
-          <div className="empty">No open agents in orca.</div>
-        ) : (
-          <ReactFlow
+        {graph && graph.nodes.length === 0 && <div className="empty">No open agents in orca.</div>}
+        {/* Stays mounted when the graph is empty, so a blip doesn't remount the canvas and reset the view. */}
+        <ReactFlow
             nodes={nodes}
             edges={edges}
+            onNodesChange={onNodesChange}
             nodeTypes={nodeTypes}
             nodesConnectable={false}
             minZoom={0.2}
@@ -148,8 +165,7 @@ function GraphView({
           >
             <Background gap={24} />
             <Controls showInteractive={false} />
-          </ReactFlow>
-        )}
+        </ReactFlow>
       </div>
       {selected && <SidePane node={selected} pollMs={pollMs} onClose={closePane} />}
       <ContextMenu
