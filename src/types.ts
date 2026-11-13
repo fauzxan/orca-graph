@@ -24,6 +24,9 @@ export type Message = {
   description?: string;
   error?: boolean;
   at?: number;
+  // Mailbox messages shown in place of orca's "You have N orchestration messages" notice.
+  from?: string;
+  subject?: string;
 };
 
 export type SessionDetail = {

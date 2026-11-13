@@ -86,9 +86,10 @@ export function Thread({ messages }: { messages: Message[] }) {
           <div key={i} className={`bubble-row ${m.kind}`}>
             <div className="bubble">
               <div className="bubble-meta">
-                {m.kind === 'user' ? 'Prompt' : 'Agent'}
+                {m.kind === 'user' ? (m.from ? `${m.from} · via mailbox` : 'Prompt') : 'Agent'}
                 {m.at && <span>{time(m.at)}</span>}
               </div>
+              {m.subject && <div className="bubble-subject">{m.subject}</div>}
               <Markdown text={m.text} />
             </div>
           </div>

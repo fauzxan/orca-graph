@@ -13,3 +13,18 @@ dist/assets/index-Bq_hbHje.js   403.84 kB │ gzip: 132.22 kB
 ✓ built in 660ms
 orca-graph API on http://127.0.0.1:4317/api/graph
 UI on http://127.0.0.1:4317
+
+> orca-graph@0.1.0 start
+> vite build && node server/index.mjs
+
+vite v5.4.21 building for production...
+transforming...
+✓ 165 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                   0.39 kB │ gzip:   0.26 kB
+dist/assets/index-Duxr1VI0.css   32.10 kB │ gzip:   6.30 kB
+dist/assets/index-Bq_hbHje.js   403.84 kB │ gzip: 132.22 kB
+✓ built in 568ms
+orca-graph API on http://127.0.0.1:4317/api/graph
+UI on http://127.0.0.1:4317

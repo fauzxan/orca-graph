@@ -5,6 +5,7 @@ import { orca, sessionIndex } from './orca.mjs';
 const TRANSCRIPT_LIMIT = 200;
 const STREAM_LIMIT = 400;
 const TOOL_PREVIEW = 4000;
+const OWN_SUBJECT = 'Message from orca-graph';
 
 // Every source is normalised to these entries:
 //   user | assistant | thinking  { text }
@@ -127,6 +128,54 @@ async function streamFor(handle) {
   return { lines: t.tail || [], status: t.status, source: t.source };
 }
 
+// A worker learns about mailbox messages from a notice like "You have 3 orchestration messages.
+// Run `orca orchestration check`.", then reads them with a tool call. In the thread, each notice is
+// replaced by the messages it announced, taken from orca's inbox. Notices are matched newest first,
+// because the live stream may have lost its oldest lines.
+const NOTICE = /^You have (\d+) (?:new )?orchestration messages?\b/i;
+
+async function inboxFor(id, s) {
+  const targets = new Set([id, ...(s.dispatchIds || []).map((d) => `dispatch:${d}`)]);
+  const res = await orca(['orchestration', 'inbox', '--full', '--limit', '500']);
+  if (!res.ok) return [];
+  return (res.result.messages || [])
+    .filter((m) => targets.has(m.to_handle) && m.delivered_at)
+    .sort((a, b) => a.sequence - b.sequence);
+}
+
+function senderLabel(m) {
+  if (m.subject === OWN_SUBJECT) return 'You';
+  const from = m.from_handle || '';
+  if (from.startsWith('run:')) return 'Run';
+  return sessionIndex.get(from)?.name || from.replace(/^(term|structworker)_/, '').slice(0, 8) || 'Unknown sender';
+}
+
+function withInbox(messages, inbox) {
+  if (!inbox.length || !messages.some((m) => m.kind === 'user' && NOTICE.test(m.text))) return messages;
+  const queue = [...inbox];
+  const out = [];
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    const notice = m.kind === 'user' && m.text.match(NOTICE);
+    const batch = notice ? queue.splice(Math.max(0, queue.length - Number(notice[1]))) : [];
+    if (!batch.length) {
+      out.push(m);
+      continue;
+    }
+    for (const msg of batch.reverse()) {
+      const own = msg.subject === OWN_SUBJECT;
+      out.push({
+        kind: 'user',
+        text: msg.body || msg.subject,
+        from: senderLabel(msg),
+        subject: own ? undefined : msg.subject,
+        at: Date.parse(msg.created_at) || m.at,
+      });
+    }
+  }
+  return out.reverse();
+}
+
 export async function sessionDetail(id) {
   const s = sessionIndex.get(id);
   if (!s) return { ok: false, error: 'This agent is no longer open.' };
@@ -153,16 +202,17 @@ export async function sessionDetail(id) {
     };
   }
 
-  const [read, stream] = await Promise.all([
+  const [read, stream, inbox] = await Promise.all([
     orca(['orchestration', 'worker-read', '--dispatch', s.latestDispatchId, '--limit', String(TRANSCRIPT_LIMIT)]),
     streamFor(id),
+    inboxFor(id, s),
   ]);
   const transcript = read.ok ? fromTranscript(read.result.transcript?.messages || []) : [];
   const live = stream.source === 'screen' ? fromClaudeScreen(stream.lines) : fromWorkerStream(stream.lines);
   return {
     ...base,
     path: s.path,
-    messages: merge(transcript, live),
+    messages: withInbox(merge(transcript, live), inbox),
     raw: stream.lines.map(stripAnsi),
     error: [read.ok ? null : read.error, stream.error].filter(Boolean).join('\n') || undefined,
     canSend: s.active || stream.status === 'running',
@@ -211,7 +261,7 @@ export async function sendMessage(id, text) {
         'and orca-graph was not started inside an Orca terminal. Start orca-graph from an Orca terminal tab, or reopen the coordinator.',
     };
   }
-  const args = ['orchestration', 'send', '--to', `dispatch:${s.latestDispatchId}`, '--from', sender.handle, '--subject', 'Message from orca-graph', '--body', text];
+  const args = ['orchestration', 'send', '--to', `dispatch:${s.latestDispatchId}`, '--from', sender.handle, '--subject', OWN_SUBJECT, '--body', text];
   if (s.runId) args.push('--run', s.runId);
   const mail = await orca(args);
   if (mail.ok) return { ok: true, via: 'mailbox', from: sender.name };

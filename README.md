@@ -59,6 +59,8 @@ orca needs a sender (`--from`) for mailbox messages, and the worker's reply goes
 
 If neither is available, sending fails with an explanation.
 
+The worker itself only sees a notice like "You have 1 orchestration message. Run `orca orchestration check`." In the side pane, each notice is replaced by the messages it announced, read from `orca orchestration inbox`. Yours show as **You · via mailbox**; others show their sender and subject.
+
 ### Safety
 
 The server listens on 127.0.0.1 only. Cleanup and send requests must come from a local Host and Origin, be JSON, and carry an `x-orca-graph` header, so other websites can't trigger them. Cleanup acts only on sessions the server itself saw in the last poll, never on paths sent by the browser.
