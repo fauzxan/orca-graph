@@ -1,11 +1,11 @@
 // Side-pane data for one session (a chat-style message list plus raw output) and sending it a message.
 import { claudeTranscript } from './claude.mjs';
+import { clip, toolInput } from './format.mjs';
 import { imageLine } from './images.mjs';
 import { orca, sessionIndex } from './orca.mjs';
 
 const TRANSCRIPT_LIMIT = 200;
 const STREAM_LIMIT = 400;
-const TOOL_PREVIEW = 4000;
 const OWN_SUBJECT = 'Message from orca-graph';
 
 // Every source is normalised to these entries:
@@ -13,18 +13,9 @@ const OWN_SUBJECT = 'Message from orca-graph';
 //   tool                          { name, text }        text = command or input
 //   result                        { text, error }
 //   divider                       { text }
-const clip = (value) => {
-  const text = typeof value === 'string' ? value : JSON.stringify(value ?? '', null, 2);
-  return text.length > TOOL_PREVIEW ? `${text.slice(0, TOOL_PREVIEW)}\n… (truncated)` : text;
-};
 
 // eslint-disable-next-line no-control-regex
 const stripAnsi = (s) => s.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
-
-function toolInput(input) {
-  if (!input || typeof input !== 'object') return clip(input);
-  return clip(input.command ?? input.file_path ?? input.pattern ?? input.url ?? input.prompt ?? input);
-}
 
 // orca's hook transcript (worker-read).
 function fromTranscript(messages) {
@@ -187,10 +178,13 @@ export async function sessionDetail(id) {
     if (!s.connected) return { ...base, messages: [], raw: [], canSend: false, note: 'This terminal is closed.' };
     const stream = await streamFor(id);
     const raw = stream.lines.map(stripAnsi);
-    if (stream.source !== 'screen') return { ...base, path: s.path, messages: fromWorkerStream(stream.lines), raw, error: stream.error, canSend: true };
-    const screen = fromClaudeScreen(stream.lines);
-    // Prefer Claude's own transcript: it keeps the Markdown (tables, code blocks) and the whole history.
-    const transcript = s.agent === 'claude' ? await claudeTranscript(id, s.path, screen, { clip, toolInput }).catch(() => null) : null;
+    const onScreen = stream.source === 'screen';
+    const screen = onScreen ? fromClaudeScreen(stream.lines) : [];
+    // Prefer Claude's own transcript: it keeps the Markdown (tables, code blocks) and the whole
+    // history. Background sessions started with /fork have no readable screen, so for them the
+    // transcript is the only source.
+    const transcript = s.agent === 'claude' ? await claudeTranscript(id, s.path, screen, s.title).catch(() => null) : null;
+    if (!transcript && !onScreen) return { ...base, path: s.path, messages: fromWorkerStream(stream.lines), raw, error: stream.error, canSend: true };
     const busy = stream.lines.some((l) => /esc to interrupt/i.test(l));
     return {
       ...base,

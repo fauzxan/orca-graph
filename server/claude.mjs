@@ -1,11 +1,15 @@
 // Claude Code tabs: the screen only shows rendered text, so tables lose their Markdown and code
 // blocks lose their fences. Claude Code also writes every session to
 // ~/.claude/projects/<cwd with non-alphanumerics as "-">/<session>.jsonl, which keeps the original
-// Markdown. orca doesn't say which file belongs to which tab, so this finds the file whose latest
-// prompt and reply match what's on the tab's screen.
+// Markdown. orca doesn't say which file belongs to which tab, so this finds the file whose session
+// title matches the tab's title, or whose latest prompt and reply match what's on the tab's screen.
+//
+// A fork (/fork, or --fork-session) gets its own file that starts with a copy of the parent's
+// conversation since its last compaction, so the shared history shows in the fork's thread too.
 import { open, readdir, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { clip, toolInput } from './format.mjs';
 
 const PROJECTS = join(homedir(), '.claude', 'projects');
 const TAIL_BYTES = 3 * 1024 * 1024; // enough for a few hundred messages; files can be tens of MB
@@ -29,6 +33,13 @@ function typed(text) {
   return NOT_TYPED.test(text) ? null : text;
 }
 
+// The notice Claude Code adds as a fork's first prompt.
+function forkDivider(text) {
+  if (!/<fork-source>/.test(text)) return null;
+  const parent = text.match(/self-reported name is '([^']+)'/)?.[1];
+  return `Forked from ${parent ? `“${parent}”` : 'another session'}. Everything above is shared history.`;
+}
+
 async function readTail(file) {
   const fh = await open(file, 'r');
   try {
@@ -50,8 +61,10 @@ function resultText(content) {
   return JSON.stringify(content ?? '', null, 2);
 }
 
-function parse(text, { clip, toolInput }) {
+function parse(text) {
   const out = [];
+  let customTitle = '';
+  let aiTitle = '';
   for (const line of text.split('\n')) {
     if (!line.trim()) continue;
     let e;
@@ -60,12 +73,24 @@ function parse(text, { clip, toolInput }) {
     } catch {
       continue;
     }
+    // Titles are written again now and then, so the newest one is near the end of the file.
+    if (e.type === 'custom-title' && e.customTitle) customTitle = e.customTitle;
+    if (e.type === 'ai-title' && e.aiTitle) aiTitle = e.aiTitle;
     if ((e.type !== 'user' && e.type !== 'assistant') || e.isSidechain || e.isMeta) continue;
     const at = e.timestamp ? Date.parse(e.timestamp) : undefined;
+    if (e.isCompactSummary) {
+      out.push({ kind: 'divider', text: 'Earlier messages were compacted.', at });
+      continue;
+    }
     const content = e.message?.content;
     const blocks = typeof content === 'string' ? [{ type: 'text', text: content }] : Array.isArray(content) ? content : [];
     for (const b of blocks) {
       if (b.type === 'text' && b.text?.trim()) {
+        const fork = e.type === 'user' ? forkDivider(b.text) : null;
+        if (fork) {
+          out.push({ kind: 'divider', text: fork, at });
+          continue;
+        }
         const text = e.type === 'user' ? typed(b.text) : b.text;
         if (!text?.trim()) continue;
         const prev = out.at(-1);
@@ -81,7 +106,7 @@ function parse(text, { clip, toolInput }) {
       }
     }
   }
-  return out.slice(-MAX_MESSAGES);
+  return { messages: out.slice(-MAX_MESSAGES), title: customTitle || aiTitle };
 }
 
 // The newest prompt and reply on screen, as normalised snippets. The screen strips Markdown and
@@ -98,17 +123,24 @@ function probesFrom(screen) {
 }
 
 const matches = (messages, probes) =>
-  probes.every((p) => messages.some((m) => (m.kind === 'user' || m.kind === 'assistant') && norm(m.text).includes(p)));
+  probes.length > 0 && probes.every((p) => messages.some((m) => (m.kind === 'user' || m.kind === 'assistant') && norm(m.text).includes(p)));
+
+// Claude Code puts the session title in the tab title, after a status glyph ("✳ ", "◐ ") while it works.
+const tabTitle = (title) => norm((title || '').replace(/^[^\p{L}\p{N}]+/u, ''));
+// A title cut short in the tab ("…") matches by prefix. Otherwise only an exact match counts: an
+// unrenamed fork is titled "<parent title> ⑂ …", which must not match the parent's tab.
+const cutShort = (title) => /(…|\.\.\.)\s*$/.test(title || '');
+const sameTitle = (want, have, prefix) => Boolean(want && have) && (want === have || (prefix && want.length >= 16 && have.startsWith(want)));
 
 // Parsed tails, reused while the file hasn't changed.
 const parsed = new Map();
-async function messagesOf(file, helpers) {
+async function transcriptOf(file) {
   const st = await stat(file);
   const hit = parsed.get(file);
-  if (hit && hit.mtime === st.mtimeMs && hit.size === st.size) return hit.messages;
-  const messages = parse(await readTail(file), helpers);
-  parsed.set(file, { mtime: st.mtimeMs, size: st.size, messages });
-  return messages;
+  if (hit && hit.mtime === st.mtimeMs && hit.size === st.size) return hit.transcript;
+  const transcript = parse(await readTail(file));
+  parsed.set(file, { mtime: st.mtimeMs, size: st.size, transcript });
+  return transcript;
 }
 
 async function candidates(path) {
@@ -130,24 +162,44 @@ async function candidates(path) {
 
 const fileFor = new Map(); // terminal handle -> transcript file
 
-// Returns the tab's messages from its transcript, or null when no transcript matches the screen.
-export async function claudeTranscript(handle, path, screen, helpers) {
+// Returns the tab's messages from its transcript, or null when no transcript matches the tab.
+// `screen` is what's on the tab's screen (empty when orca can't read it, as for /fork sessions).
+export async function claudeTranscript(handle, path, screen, title) {
   const probes = probesFrom(screen);
+  const want = tabTitle(title);
+  const prefix = cutShort(title);
+  const titled = (t) => sameTitle(want, norm(t.title), prefix);
   const cached = fileFor.get(handle);
   if (cached) {
-    const messages = await messagesOf(cached, helpers).catch(() => null);
-    // With nothing on screen to check against (just after /clear), keep the last match.
-    if (messages && (!probes.length || matches(messages, probes))) return messages;
+    const t = await transcriptOf(cached).catch(() => null);
+    // With nothing to check against (just after /clear), keep the last match.
+    if (t && (titled(t) || matches(t.messages, probes) || (!probes.length && !want))) return t.messages;
     fileFor.delete(handle);
   }
-  if (!probes.length || !path) return null;
+  if (!path || (!probes.length && !want)) return null;
+
+  // Newest first. Best: title and screen both match. Then title alone (a /fork tab has no screen,
+  // and a slash command on screen isn't stored as a prompt). Then screen alone (an unnamed session).
+  const seen = [];
   for (const file of await candidates(path)) {
-    if (file === cached) continue;
-    const messages = await messagesOf(file, helpers).catch(() => null);
-    if (messages && matches(messages, probes)) {
-      fileFor.set(handle, file);
-      return messages;
-    }
+    const t = await transcriptOf(file).catch(() => null);
+    if (!t) continue;
+    const byTitle = titled(t);
+    const byScreen = matches(t.messages, probes);
+    if (byTitle && (byScreen || !probes.length)) return remember(handle, file, t);
+    seen.push({ file, t, byTitle, byScreen });
   }
-  return null;
+  const pick = seen.find((x) => x.byTitle) || seen.find((x) => x.byScreen);
+  return pick ? remember(handle, pick.file, pick.t) : null;
+}
+
+function remember(handle, file, t) {
+  fileFor.set(handle, file);
+  return t.messages;
+}
+
+// The newest reply in a Claude tab's transcript, for the graph node when orca can't read the screen.
+export async function lastClaudeReply(handle, path, title) {
+  const messages = await claudeTranscript(handle, path, [], title).catch(() => null);
+  return [...(messages || [])].reverse().find((m) => m.kind === 'assistant')?.text || '';
 }

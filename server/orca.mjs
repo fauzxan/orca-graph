@@ -1,6 +1,7 @@
 // Builds the coordinator -> worker graph from the orca CLI.
 import { execFile } from 'node:child_process';
 import { homedir } from 'node:os';
+import { lastClaudeReply } from './claude.mjs';
 
 const ORCA = process.env.ORCA_BIN || 'orca';
 const CONCURRENCY = 6;
@@ -184,7 +185,7 @@ const ACTIVE_OUTPUT_MS = 60_000;
 
 function terminalStatus(s, screen) {
   if (s.kind === 'run' || !s.terminal?.connected) return 'offline';
-  if (screen) return screen.busy ? 'working' : 'idle';
+  if (screen && screen.busy != null) return screen.busy ? 'working' : 'idle';
   const last = s.terminal.lastOutputAt;
   return last && Date.now() - last < ACTIVE_OUTPUT_MS ? 'working' : 'idle';
 }
@@ -214,7 +215,13 @@ const lastScreenMessage = new Map();
 async function screenFor(terminal) {
   if (!terminal?.connected || terminal.agentIdentity !== 'claude') return null;
   const res = await orca(['terminal', 'read', '--terminal', terminal.handle, '--limit', '200']);
-  if (!res.ok || res.result.terminal?.source !== 'screen') return null;
+  if (!res.ok) return null;
+  if (res.result.terminal?.source !== 'screen') {
+    // A /fork session has no readable screen. Its transcript still has the last reply; whether it
+    // is working comes from the tab's output time instead (busy: null).
+    const message = await lastClaudeReply(terminal.handle, terminal.worktreePath, terminal.title);
+    return message ? { busy: null, message: clean(message) } : null;
+  }
   const screen = readClaudeScreen(res.result.terminal.tail || []);
   if (screen.message) lastScreenMessage.set(terminal.handle, screen.message);
   return { ...screen, message: screen.message || lastScreenMessage.get(terminal.handle) || '' };
@@ -514,6 +521,7 @@ export async function collectGraph() {
       connected: Boolean(s.terminal?.connected),
       path: s.terminal?.worktreePath || pathOf(s.terminal?.worktreeId),
       agent: s.terminal?.agentIdentity || null,
+      title: s.terminal?.title || '',
     });
     return {
       ...base,
