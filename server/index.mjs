@@ -33,7 +33,8 @@ async function graph() {
   return inFlight;
 }
 
-const LOCAL_HOST = /^(127\.0\.0\.1|localhost)(:\d+)?$/;
+// orca-graph.xyz is the local name served by ~/personal/local-proxy (/etc/hosts -> 127.0.0.1).
+const LOCAL_HOST = /^(127\.0\.0\.1|localhost|orca-graph\.xyz)(:\d+)?$/;
 
 // Actions change real agents and files, so only this app's own pages may call them:
 // a local Host header (blocks DNS rebinding), a local or absent Origin, and a custom header
