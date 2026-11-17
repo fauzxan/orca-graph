@@ -346,7 +346,27 @@ async function isWorkerOpen(worker) {
   return res.ok && res.result.observation?.status === 'live';
 }
 
-// An agent tab is open while orca sees an agent in it. agentIdentity clears when the agent exits.
+// An agent tab is open while orca sees an agent in it. agentIdentity clears when the agent exits,
+// but it can also go blank for a moment while the tab is still open (seen on /fork tabs right after
+// a message is sent). Dropping the node then makes it vanish and come back, and the whole graph
+// refits each time. So an open tab that had an agent within the last AGENT_GRACE_MS keeps its node,
+// with the agent it last had. A closed tab (not connected, or gone from the list) drops at once.
+const AGENT_GRACE_MS = 15_000;
+const lastAgent = new Map(); // terminal handle -> { identity, at }
+let lastTerminalList = [];
+
+function withAgent(t) {
+  if (!t?.connected) return t;
+  if (t.agentIdentity) {
+    lastAgent.set(t.handle, { identity: t.agentIdentity, at: Date.now() });
+    return t;
+  }
+  const seen = lastAgent.get(t.handle);
+  if (!seen || Date.now() - seen.at > AGENT_GRACE_MS) return t;
+  console.warn(`[orca-graph] ${new Date().toISOString()} ${t.handle} "${t.title}": orca reports no agent in an open tab; keeping its node`);
+  return { ...t, agentIdentity: seen.identity };
+}
+
 const isAgentTabOpen = (t) => Boolean(t?.connected && t.agentIdentity);
 
 export async function collectGraph() {
@@ -364,7 +384,11 @@ export async function collectGraph() {
     const w = worktrees.get(id);
     return w?.displayName || basename(w?.path || pathOf(id));
   };
-  const terminals = new Map((terminalList.ok ? terminalList.result.terminals : []).map((t) => [t.handle, t]));
+  // A failed list call would empty the graph for one poll; reuse the last good list instead (the
+  // error is still reported).
+  if (terminalList.ok) lastTerminalList = terminalList.result.terminals;
+  const terminals = new Map(lastTerminalList.map((t) => [t.handle, withAgent(t)]));
+  for (const handle of lastAgent.keys()) if (terminalList.ok && !terminals.has(handle)) lastAgent.delete(handle);
 
   const runs = runList.ok ? runList.result.runs.filter((r) => !r.legacy) : [];
   const runDetails = await pool(runs, CONCURRENCY, (r) => orca(['orchestration', 'run-show', '--id', r.id, '--full']));
